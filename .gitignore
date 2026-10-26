@@ -10,3 +10,10 @@ env/
 *.dat
 .pytest_cache/
 .coverage
+build/
+*.pyd
+*.dll
+*.obj
+*.lib
+*.exp
+matching_engine/*.c

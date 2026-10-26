@@ -89,3 +89,93 @@ python -m benchmarks.benchmark_firehose --orders 100000
 ## Week 1 Summary
 
 The initial ring buffer implementation passed five unit tests. The 100,000-order benchmark completed with all orders consumed and zero reported order losses, achieving a measured throughput of 289,923.56 orders per second.
+
+
+## Week 2 — Cython Matching Engine and Latency Dashboard
+
+### 1. Cython Limit Order Book
+
+Implemented a Limit Order Book using Cython in `matching_engine/order_book.pyx`.
+
+Features:
+- BUY and SELL order matching
+- Price-time priority
+- Exact matches and partial fills
+- Multiple trade executions
+- Fixed-size C structures for resting orders
+- Integer-based price representation
+- GIL-free best-price search sections using `nogil`
+
+The matching operation as a whole is not yet GIL-free.
+
+### 2. Matching Engine Testing
+
+Implemented 10 automated matching-engine tests covering order insertion, exact matching, partial fills, price priority, time priority, multiple matches, unmatched orders, and invalid inputs.
+
+Results:
+- Week 1 tests: 5 passed
+- Week 2 tests: 10 passed
+- Total: 15 passed
+
+### 3. Real-Time Terminal Dashboard
+
+Implemented `dashboard/latency_dashboard.py` using Python `curses`.
+
+The dashboard displays:
+- Best bid and ask prices
+- Bid/ask spread
+- Resting BUY and SELL order counts
+- Executed trade count
+- Last order-processing latency
+- Simulated order-processing rate
+
+The dashboard was tested successfully on Windows.
+
+### 4. Matching Engine Benchmark
+
+Benchmark file: `benchmarks/benchmark_matching.py`
+
+| Metric | Result |
+|---|---:|
+| Orders processed | 100,000 |
+| Trades executed | 77,953 |
+| Elapsed time | 1.8093 seconds |
+| Throughput | 55,269.91 orders/sec |
+| Average latency | 16.18 µs |
+| P50 latency | 12.30 µs |
+| P95 latency | 44.90 µs |
+| P99 latency | 79.30 µs |
+
+The benchmark measures the Cython matching engine under a synthetic workload. Total elapsed time includes order generation and measurement overhead.
+
+### 5. Running Week 2
+
+Compile the matching engine:
+
+`python setup.py build_ext --inplace`
+
+Run all tests:
+
+`python -m unittest discover -s tests -v`
+
+Run the terminal dashboard:
+
+`python -m dashboard.latency_dashboard`
+
+Run the matching-engine benchmark:
+
+`python -m benchmarks.benchmark_matching --orders 100000`
+
+### 6. Current Limitations
+
+- The complete matching operation does not run without the GIL.
+- The engine uses linear scans to locate the best resting order.
+- Cancellation, modification, and duplicate-order-ID handling are not yet implemented.
+- The dashboard runs a simulated order stream rather than consuming the Week 1 shared-memory buffer.
+- Additional stress testing and concurrency verification are required before production use.
+
+### Week 2 Summary
+
+Implemented and compiled a Cython-based Limit Order Book with price-time priority, validated it with 10 automated tests, and developed a real-time terminal dashboard.
+
+The matching-engine benchmark processed 100,000 orders at 55,269.91 orders per second, with an average measured order-processing latency of 16.18 microseconds.
