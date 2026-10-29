@@ -179,3 +179,34 @@ Run the matching-engine benchmark:
 Implemented and compiled a Cython-based Limit Order Book with price-time priority, validated it with 10 automated tests, and developed a real-time terminal dashboard.
 
 The matching-engine benchmark processed 100,000 orders at 55,269.91 orders per second, with an average measured order-processing latency of 16.18 microseconds.
+
+## Week 3 – C-Level Optimization and Metrics Tracking
+
+### Completed Features
+
+- Optimized matching operations using Cython C-level functions.
+- Reduced Python-level interactions during order quantity updates.
+- Implemented `nogil` sections for selected matching operations.
+- Added nanosecond-level latency tracking using `time.perf_counter_ns()`.
+- Integrated latency statistics into the benchmark.
+- Added 3 automated latency tests.
+
+### Performance Results
+
+| Metric | Week 2 | Week 3 |
+|---|---:|---:|
+| Orders Processed | 100,000 | 100,000 |
+| Trades Executed | 77,953 | 77,953 |
+| Throughput | 55,269.91/s | 57,367.60/s |
+| Average Latency | 16.18 µs | 15.48 µs |
+| P99 Latency | 79.30 µs | 72.60 µs |
+
+### Testing
+
+All 18 automated tests passed.
+
+### Week 3 Outcome
+
+Implemented C-level matching improvements and nanosecond latency measurements. The latest benchmark recorded approximately 3.8% higher throughput compared with the Week 2 baseline.
+
+The matching engine remains a prototype, and further benchmarking and optimization are recommended.

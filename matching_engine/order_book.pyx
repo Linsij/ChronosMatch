@@ -67,6 +67,27 @@ cdef class OrderBook:
 
         return best
 
+    cdef long execute_match(
+        self,
+        Order* incoming,
+        Order* resting,
+        long* execution_price
+    ) noexcept nogil:
+
+    cdef long traded
+
+        if incoming.quantity < resting.quantity:
+            traded = incoming.quantity
+        else:
+            traded = resting.quantity
+
+        execution_price[0] = resting.price
+
+        incoming.quantity -= traded
+        resting.quantity -= traded
+
+        return traded
+
     def add_order(self, long order_id, long price,
                   long quantity, int side):
         cdef Order order
@@ -96,11 +117,12 @@ cdef class OrderBook:
                 if best == -1 or self.asks[best].price > price:
                     break
 
-                traded = min(order.quantity, self.asks[best].quantity)
-                execution_price = self.asks[best].price
-                order.quantity -= traded
-                self.asks[best].quantity -= traded
-
+                with nogil:
+                traded = self.execute_match(
+                &order,
+                &self.asks[best],
+                &execution_price
+                )
                 trades.append((
                     order_id,
                     self.asks[best].order_id,

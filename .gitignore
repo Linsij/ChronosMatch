@@ -17,3 +17,6 @@ build/
 *.lib
 *.exp
 matching_engine/*.c
+# Local matching engine backups
+matching_engine/order_book_original.pyx
+matching_engine/order_book_week2_backup.pyx

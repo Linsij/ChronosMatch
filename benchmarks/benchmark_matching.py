@@ -5,6 +5,7 @@ import argparse
 import random
 import statistics
 import time
+from matching_engine.latency_metrics import LatencyMetrics
 
 from matching_engine.order_book import OrderBook
 
@@ -13,6 +14,7 @@ def benchmark(order_count=100_000):
     random.seed(42)
 
     book = OrderBook(capacity=order_count + 100)
+    metrics = LatencyMetrics()
     latencies_ns = []
     trades_count = 0
 
@@ -23,10 +25,9 @@ def benchmark(order_count=100_000):
         quantity = random.randint(1, 100)
         side = random.randint(0, 1)
 
-        t0 = time.perf_counter_ns()
+        start_ns = metrics.start()
         trades = book.add_order(order_id, price, quantity, side)
-        latency = time.perf_counter_ns() - t0
-
+        latency = metrics.stop(start_ns)
         latencies_ns.append(latency)
         trades_count += len(trades)
 
@@ -50,6 +51,16 @@ def benchmark(order_count=100_000):
     print(f"P50 latency: {percentile(0.50):.2f} us")
     print(f"P95 latency: {percentile(0.95):.2f} us")
     print(f"P99 latency: {percentile(0.99):.2f} us")
+    summary = metrics.summary()
+
+    print("\n=== Nanosecond Latency Metrics ===")
+    print(f"Orders measured: {summary['orders_measured']:,}")
+    print(f"Average latency: {summary['average_ns']:.2f} ns")
+    print(f"Minimum latency: {summary['min_ns']:,} ns")
+    print(f"Maximum latency: {summary['max_ns']:,} ns")
+    print(f"P50 latency: {summary['p50_ns']:,} ns")
+    print(f"P95 latency: {summary['p95_ns']:,} ns")
+    print(f"P99 latency: {summary['p99_ns']:,} ns")
 
 
 if __name__ == "__main__":
