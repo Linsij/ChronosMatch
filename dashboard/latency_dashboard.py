@@ -6,9 +6,14 @@ import random
 import time
 
 from matching_engine.order_book import OrderBook
+from dashboard.whale_detector import WhaleDetector
+from persistence.trade_ledger import TradeLedger
+from persistence.trade_writer import TradeWriter
 
 
 TICK_SIZE = 0.01
+WHALE_QUANTITY = 100
+WHALE_LEVELS = 2
 
 
 def draw(stdscr, stats):
@@ -31,6 +36,9 @@ def draw(stdscr, stats):
         f"Last latency   : {stats['latency_us']:.2f} us",
         f"Orders/sec     : {stats['rate']:.0f}",
         "",
+        "----------- WHALE ORDER ALERT -----------",
+        stats["whale_alert"],
+        "",
         "Press Q to quit",
     ]
 
@@ -50,70 +58,106 @@ def main(stdscr):
     stdscr.nodelay(True)
 
     book = OrderBook(capacity=100000)
+    detector = WhaleDetector(
+        quantity_threshold=WHALE_QUANTITY,
+        level_threshold=WHALE_LEVELS
+    )
+
+    ledger = TradeLedger()
+    writer = TradeWriter(
+        ledger,
+        batch_size=50,
+        flush_interval=0.5
+    )
+    writer.start()
 
     orders = 0
     trades_count = 0
     start = time.perf_counter()
+    whale_alert = "No whale orders detected yet"
 
-    while True:
-        key = stdscr.getch()
-        if key in (ord("q"), ord("Q")):
-            break
+    try:
+        while True:
+            key = stdscr.getch()
+            if key in (ord("q"), ord("Q")):
+                break
 
-        order_id = orders + 1
-        price = random.randint(9950, 10050)
-        quantity = random.randint(1, 100)
-        side = random.randint(0, 1)
+            order_id = orders + 1
+            price = random.randint(9950, 10050)
+            quantity = random.randint(1, 100)
+            side = random.randint(0, 1)
 
-        t0 = time.perf_counter_ns()
+            t0 = time.perf_counter_ns()
 
-        try:
-            trades = book.add_order(
-                order_id, price, quantity, side
+            try:
+                trades = book.add_order(
+                    order_id, price, quantity, side
+                )
+            except OverflowError:
+                break
+
+            latency_us = (time.perf_counter_ns() - t0) / 1000
+            trades_count += len(trades)
+            orders += 1
+
+            # Send matched trades to the background writer.
+            for trade in trades:
+                writer.submit(trade)
+
+            # Detect large orders that consume multiple price levels.
+            whale = detector.detect(trades, side)
+
+            if whale:
+                whale_alert = (
+                    f"{whale['side']} | "
+                    f"Qty: {whale['total_quantity']} | "
+                    f"Levels: {whale['levels_cleared']} | "
+                    f"Prices: {whale['execution_prices']}"
+                )
+
+            top = book.top_of_book()
+
+            bid_ticks = top["best_bid"]
+            ask_ticks = top["best_ask"]
+
+            bid = (
+                f"{bid_ticks * TICK_SIZE:.2f}"
+                if bid_ticks is not None else "N/A"
             )
-        except OverflowError:
-            # Stop instead of silently discarding orders.
-            break
+            ask = (
+                f"{ask_ticks * TICK_SIZE:.2f}"
+                if ask_ticks is not None else "N/A"
+            )
 
-        latency_us = (time.perf_counter_ns() - t0) / 1000
-        trades_count += len(trades)
-        orders += 1
+            spread = (
+                f"{(ask_ticks - bid_ticks) * TICK_SIZE:.2f}"
+                if bid_ticks is not None and ask_ticks is not None
+                else "N/A"
+            )
 
-        top = book.top_of_book()
+            elapsed = time.perf_counter() - start
+            rate = orders / elapsed if elapsed > 0 else 0
 
-        bid_ticks = top["best_bid"]
-        ask_ticks = top["best_ask"]
+            draw(stdscr, {
+                "bid": bid,
+                "ask": ask,
+                "spread": spread,
+                "bid_count": top["bid_count"],
+                "ask_count": top["ask_count"],
+                "trades": trades_count,
+                "latency_us": latency_us,
+                "rate": rate,
+                "whale_alert": whale_alert,
+            })
 
-        bid = (
-            f"{bid_ticks * TICK_SIZE:.2f}"
-            if bid_ticks is not None else "N/A"
-        )
-        ask = (
-            f"{ask_ticks * TICK_SIZE:.2f}"
-            if ask_ticks is not None else "N/A"
-        )
+            time.sleep(0.05)
 
-        spread = (
-            f"{(ask_ticks - bid_ticks) * TICK_SIZE:.2f}"
-            if bid_ticks is not None and ask_ticks is not None
-            else "N/A"
-        )
-
-        elapsed = time.perf_counter() - start
-        rate = orders / elapsed if elapsed > 0 else 0
-
-        draw(stdscr, {
-            "bid": bid,
-            "ask": ask,
-            "spread": spread,
-            "bid_count": top["bid_count"],
-            "ask_count": top["ask_count"],
-            "trades": trades_count,
-            "latency_us": latency_us,
-            "rate": rate,
-        })
-
-        time.sleep(0.05)
+    finally:
+        # Flush pending trades before closing the database.
+        try:
+            writer.close()
+        finally:
+            ledger.close()
 
 
 if __name__ == "__main__":

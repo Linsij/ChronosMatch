@@ -210,3 +210,26 @@ All 18 automated tests passed.
 Implemented C-level matching improvements and nanosecond latency measurements. The latest benchmark recorded approximately 3.8% higher throughput compared with the Week 2 baseline.
 
 The matching engine remains a prototype, and further benchmarking and optimization are recommended.
+
+## Week 4 – Trade Persistence, System Resilience and Whale Detection
+
+### Deliverables
+
+- Implemented a SQLite trade ledger for permanent storage of executed trades.
+- Developed an asynchronous background writer with batch insertion, retries and graceful shutdown.
+- Connected the memory-mapped ring buffer to the Cython matching engine and SQLite persistence pipeline.
+- Implemented whale order detection using configurable quantity and price-level thresholds.
+- Enhanced the terminal dashboard with BUY/SELL whale order alerts.
+
+### Testing and Validation
+
+- 30 automated tests passed across Weeks 1–4.
+- Verified mmap-to-matching-engine-to-SQLite integration.
+- Confirmed persistence of 158 dashboard-generated trades.
+- Validated batch flushing and graceful shutdown.
+
+### Week 4 Outcome
+
+Implemented asynchronous trade persistence, memory-mapped order processing and whale order monitoring. All 30 automated tests passed successfully.
+
+The project remains a prototype; further performance testing, resilience testing and production hardening are recommended.
