@@ -14,29 +14,37 @@ from persistence.trade_writer import TradeWriter
 TICK_SIZE = 0.01
 WHALE_QUANTITY = 100
 WHALE_LEVELS = 2
+REFRESH_INTERVAL = 0.05
 
 
 def draw(stdscr, stats):
+    """Render live order-book and performance information."""
+
     stdscr.erase()
     height, width = stdscr.getmaxyx()
 
     lines = [
-        "==========================================",
-        "       CHRONOSMATCH LIVE ORDER BOOK",
-        "==========================================",
+        "=" * 45,
+        "          CHRONOSMATCH LIVE DASHBOARD",
+        "=" * 45,
         "",
-        f"Best BID       : {stats['bid']}",
-        f"Best ASK       : {stats['ask']}",
-        f"Spread         : {stats['spread']}",
+        "----------- ORDER BOOK ----------------",
+        f"Best BID          : {stats['bid']}",
+        f"Best ASK          : {stats['ask']}",
+        f"Spread            : {stats['spread']}",
+        f"Bid orders        : {stats['bid_count']}",
+        f"Ask orders        : {stats['ask_count']}",
         "",
-        f"Bid orders     : {stats['bid_count']}",
-        f"Ask orders     : {stats['ask_count']}",
-        f"Executed trades: {stats['trades']}",
+        "----------- EXECUTION METRICS ---------",
+        f"Orders processed  : {stats['orders']}",
+        f"Executed trades   : {stats['trades']}",
+        f"Average latency   : {stats['avg_latency']:.2f} us",
+        f"Maximum latency   : {stats['max_latency']:.2f} us",
+        f"Last latency      : {stats['latency_us']:.2f} us",
+        f"Throughput        : {stats['rate']:.0f} orders/sec",
         "",
-        f"Last latency   : {stats['latency_us']:.2f} us",
-        f"Orders/sec     : {stats['rate']:.0f}",
-        "",
-        "----------- WHALE ORDER ALERT -----------",
+        "----------- WHALE ORDER ALERT ---------",
+        f"Total alerts      : {stats['whale_count']}",
         stats["whale_alert"],
         "",
         "Press Q to quit",
@@ -45,6 +53,7 @@ def draw(stdscr, stats):
     for row, line in enumerate(lines):
         if row >= height:
             break
+
         try:
             stdscr.addnstr(row, 0, line, max(0, width - 1))
         except curses.error:
@@ -54,67 +63,107 @@ def draw(stdscr, stats):
 
 
 def main(stdscr):
+    """Run the ChronosMatch live trading dashboard."""
+
     curses.curs_set(0)
     stdscr.nodelay(True)
 
+    if curses.has_colors():
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_GREEN, -1)
+        curses.init_pair(2, curses.COLOR_RED, -1)
+
     book = OrderBook(capacity=100000)
+
     detector = WhaleDetector(
         quantity_threshold=WHALE_QUANTITY,
-        level_threshold=WHALE_LEVELS
+        level_threshold=WHALE_LEVELS,
     )
 
     ledger = TradeLedger()
+
     writer = TradeWriter(
         ledger,
         batch_size=50,
-        flush_interval=0.5
+        flush_interval=0.5,
     )
-    writer.start()
 
     orders = 0
     trades_count = 0
+    whale_count = 0
+
+    total_latency = 0
+    max_latency = 0
     start = time.perf_counter()
+
     whale_alert = "No whale orders detected yet"
 
     try:
+        writer.start()
+
         while True:
+
             key = stdscr.getch()
+
             if key in (ord("q"), ord("Q")):
                 break
 
+            # Generate simulated market orders.
             order_id = orders + 1
             price = random.randint(9950, 10050)
-            quantity = random.randint(1, 100)
+
+            # Occasionally generate larger orders for whale detection.
+            if orders > 0 and orders % 50 == 0:
+                quantity = random.randint(150, 250)
+            else:
+                quantity = random.randint(1, 100)
+
             side = random.randint(0, 1)
 
+            # Measure matching-engine execution latency.
             t0 = time.perf_counter_ns()
 
             try:
                 trades = book.add_order(
-                    order_id, price, quantity, side
+                    order_id,
+                    price,
+                    quantity,
+                    side,
                 )
+
             except OverflowError:
+                whale_alert = "Order book capacity reached"
                 break
 
-            latency_us = (time.perf_counter_ns() - t0) / 1000
-            trades_count += len(trades)
-            orders += 1
+            latency_us = (
+                time.perf_counter_ns() - t0
+            ) / 1000
 
-            # Send matched trades to the background writer.
+            orders += 1
+            trades_count += len(trades)
+
+            total_latency += latency_us
+            max_latency = max(max_latency, latency_us)
+
+            # Persist matched trades asynchronously.
             for trade in trades:
                 writer.submit(trade)
 
-            # Detect large orders that consume multiple price levels.
+            # Detect large orders sweeping multiple price levels.
             whale = detector.detect(trades, side)
 
             if whale:
+                whale_count += 1
+
                 whale_alert = (
                     f"{whale['side']} | "
-                    f"Qty: {whale['total_quantity']} | "
+                    f"Quantity: {whale['total_quantity']} | "
                     f"Levels: {whale['levels_cleared']} | "
                     f"Prices: {whale['execution_prices']}"
                 )
 
+            # Read current order-book state.
             top = book.top_of_book()
 
             bid_ticks = top["best_bid"]
@@ -124,6 +173,7 @@ def main(stdscr):
                 f"{bid_ticks * TICK_SIZE:.2f}"
                 if bid_ticks is not None else "N/A"
             )
+
             ask = (
                 f"{ask_ticks * TICK_SIZE:.2f}"
                 if ask_ticks is not None else "N/A"
@@ -136,24 +186,39 @@ def main(stdscr):
             )
 
             elapsed = time.perf_counter() - start
-            rate = orders / elapsed if elapsed > 0 else 0
 
-            draw(stdscr, {
+            rate = (
+                orders / elapsed
+                if elapsed > 0 else 0
+            )
+
+            avg_latency = (
+                total_latency / orders
+                if orders > 0 else 0
+            )
+
+            stats = {
                 "bid": bid,
                 "ask": ask,
                 "spread": spread,
                 "bid_count": top["bid_count"],
                 "ask_count": top["ask_count"],
+                "orders": orders,
                 "trades": trades_count,
                 "latency_us": latency_us,
+                "avg_latency": avg_latency,
+                "max_latency": max_latency,
                 "rate": rate,
+                "whale_count": whale_count,
                 "whale_alert": whale_alert,
-            })
+            }
 
-            time.sleep(0.05)
+            draw(stdscr, stats)
+
+            time.sleep(REFRESH_INTERVAL)
 
     finally:
-        # Flush pending trades before closing the database.
+        # Flush pending trades before closing SQLite.
         try:
             writer.close()
         finally:
